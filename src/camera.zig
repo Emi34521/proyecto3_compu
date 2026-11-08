@@ -27,11 +27,12 @@ pub const Camera = struct {
         // a la derecha porque eso nos dará un vector normal al plano
         // definido por forward y algún otro vector, y eso hará que right sea
         // perpendicular a ambos.
-        // Esta estimación es 2-3, porque necesitamos otro vector para sacar el
-        // producto cruz y este debe ser up, pero en esta misma función redefine up también.
-        // Usamos up, asumiendo que no está muy lejos del nuevo up que calcularemos.
+        // Como vector de referencia se usa el vertical fijo del mundo (0, 1, 0) y no el up
+        // anterior de la cámara: así la cámara nunca se inclina de lado y no se acumula error.
+        // Solo falla si forward es exactamente vertical, por eso el pitch se limita en main.
         // El orden del operación importa, si ponemos Forward primero, calcularmos Left, no Right
-        self.Right = rl.Vector3.crossProduct(self.Up, self.Forward).normalize();
+        const world_up = rl.Vector3{ .x = 0, .y = 1, .z = 0 };
+        self.Right = rl.Vector3.crossProduct(world_up, self.Forward).normalize();
 
         // En este caso, Up sí cumplirá con ser 100% perpendicular a right y forward,
         // pero tiene el error transitivo de right.

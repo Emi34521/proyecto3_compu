@@ -182,19 +182,23 @@ pub fn main() !void {
     //siempre que se cargue una textura, hacer un defer para liberar la memoria
     defer escenario1.skybox.?.deinit(gpa);
 
-    var cameraDistance: f32 = 200;
-    var camera: Camera = .init(.{
-        .x = 0,
-        .y = 0,
-        .z = cameraDistance,
-    }, .zero());
+    // para esta parte me ayudó claude con los movimientos utilizando el mouse. Lo demás es prácticamente similar a como funcionaba
+    // los controles con el raycast. Añadí la parte de "correr" con el shift que aumenta la velocidad.
+    // Cámara libre  la posición es un dato propio de la cámara y los ángulos solo dicen hacia dónde mira.
+    // Misma posición inicial en donde estaba apuntando hacia el sol
+    var camera: Camera = .init(.{ .x = -200, .y = 0, .z = 0 }, .zero());
 
-    const cameraTurnSpeed: f32 = std.math.pi / 2.0;
-    var camera_x_angle: f32 = std.math.pi;
-    var camera_y_angle: f32 = 0;
+    // yaw = 0 mira hacia +X. Aumentar yaw gira hacia la izquierda; aumentar pitch mira hacia arriba.
+    var yaw: f32 = 0;
+    var pitch: f32 = 0;
+    // Se limita para no mirar exactamente hacia arriba o abajo (ahí Forward queda paralelo al eje vertical).
+    const pitch_max: f32 = 85.0 * std.math.pi / 180.0;
+    const turnSpeed: f32 = std.math.pi / 2.0; // rad/s con las flechas
+    const mouseSensitivity: f32 = 0.0025; // rad por pixel
+    const moveSpeed: f32 = 40; // unidades por segundo; la rueda del mouse la cambia
 
-    const camera_y_angle_max = std.math.pi / 4.0;
-    const camera_y_angle_min = -camera_y_angle_max;
+    rl.disableCursor(); // esconde y captura el cursor para mirar con el mouse (Esc cierra la ventana)
+    _ = rl.getMouseDelta(); // descarta el salto del primer frame
 
     while (!rl.windowShouldClose()) {
         defer {
@@ -206,19 +210,44 @@ pub fn main() !void {
 
         const dt: f32 = @as(f32, @floatFromInt(delta)) / 1_000_000;
 
-        if (rl.isKeyDown(.a)) {
-            camera_x_angle += cameraTurnSpeed * dt;
+        // --- Mirar: mouse y flechas ---
+        const mouse = rl.getMouseDelta();
+        yaw -= mouse.x * mouseSensitivity;
+        pitch -= mouse.y * mouseSensitivity;
+        if (rl.isKeyDown(.left)) {
+            yaw += turnSpeed * dt;
         }
-        if (rl.isKeyDown(.d)) {
-            camera_x_angle -= cameraTurnSpeed * dt;
+        if (rl.isKeyDown(.right)) {
+            yaw -= turnSpeed * dt;
         }
+        if (rl.isKeyDown(.up)) {
+            pitch += turnSpeed * dt;
+        }
+        if (rl.isKeyDown(.down)) {
+            pitch -= turnSpeed * dt;
+        }
+        pitch = @max(-pitch_max, @min(pitch_max, pitch));
+        const speed = if (rl.isKeyDown(.left_shift)) moveSpeed * 2 else moveSpeed;
+        const step = speed * dt;
+
+        // --- Moverse: W/S adelante y atrás, A/D lateral, Espacio/Ctrl subir y bajar ---
         if (rl.isKeyDown(.w)) {
-            camera_y_angle += cameraTurnSpeed * dt;
-            camera_y_angle = @max(camera_y_angle_min, @min(camera_y_angle_max, camera_y_angle));
+            camera.Postition = camera.Postition.add(camera.Forward.scale(step));
         }
         if (rl.isKeyDown(.s)) {
-            camera_y_angle -= cameraTurnSpeed * dt;
-            camera_y_angle = @max(camera_y_angle_min, @min(camera_y_angle_max, camera_y_angle));
+            camera.Postition = camera.Postition.subtract(camera.Forward.scale(step));
+        }
+        if (rl.isKeyDown(.d)) {
+            camera.Postition = camera.Postition.add(camera.Right.scale(step));
+        }
+        if (rl.isKeyDown(.a)) {
+            camera.Postition = camera.Postition.subtract(camera.Right.scale(step));
+        }
+        if (rl.isKeyDown(.space)) {
+            camera.Postition.y += step;
+        }
+        if (rl.isKeyDown(.left_control)) {
+            camera.Postition.y -= step;
         }
         if (rl.isKeyDown(.r)) {
             try rotacion(&objetos, dt);
@@ -230,20 +259,13 @@ pub fn main() !void {
             //rl.drawText("Rotación activa", 20, 10, 12, htmlColor("#8899ff")); //dibujar estado
         }
 
-        camera.Postition.x = @cos(camera_x_angle) * cameraDistance;
-        camera.Postition.y = @sin(camera_y_angle) * cameraDistance;
-        camera.Postition.z = @sin(camera_x_angle) * cameraDistance;
-
-        //Para hacer un zoom en la cámara con la rueda del mouse.
-        //tiene un límite porque, de pasarse
-        if (rl.getMouseWheelMove() > 0 and cameraDistance > 10) {
-            cameraDistance -= 10;
-        }
-        if (rl.getMouseWheelMove() < 0 and cameraDistance < 250) {
-            cameraDistance += 10;
-        }
-
-        camera.lookAt(.zero());
+        // La cámara mira hacia un punto justo delante de ella, calculado con yaw y pitch.
+        const dir = rl.Vector3{
+            .x = @cos(pitch) * @cos(yaw),
+            .y = @sin(pitch),
+            .z = @cos(pitch) * @sin(yaw),
+        };
+        camera.lookAt(camera.Postition.add(dir));
 
         try render(io, &framebuffer, escenario1, camera);
 
