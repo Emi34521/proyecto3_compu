@@ -265,6 +265,7 @@ pub fn main() !void {
             .y = @sin(pitch),
             .z = @cos(pitch) * @sin(yaw),
         };
+        colisiones(&camera, &objetos); // evita que la cámara atraviese los planetas y el sol
         camera.lookAt(camera.Postition.add(dir));
 
         try render(io, &framebuffer, escenario1, camera);
@@ -526,6 +527,31 @@ fn traslacion(objectos: []Forma, dt: f32) void {
             .Sphere => |*esfera| try esfera.traslado(dt),
             .Anillo => |*anillo| try anillo.traslado(dt),
             else => {},
+        }
+    }
+}
+//función auxiliar para evitar las coliciones entre planetas y el sol.
+// básicamente si la distancia del centro del planeta (o sol) y la camara es menor a la suma de los radios, entonces
+// hay una colisón.
+fn colisiones(camara: *Camera, objetos: []const Forma) void {
+    for (objetos) |obj| {
+        var centro: rl.Vector3 = undefined;
+        var minima: f32 = 0;
+        switch (obj) {
+            .Sphere => |e| {
+                centro = e.center;
+                minima = e.radius + 5.0;
+            },
+            .Modelo => |m| {
+                centro = m.center;
+                minima = m.radio + 3.0;
+            },
+            else => continue,
+        }
+        const hacia_fuera = camara.Postition.subtract(centro);
+        const distancia = hacia_fuera.length();
+        if (distancia < minima and distancia > 0.0001) {
+            camara.Postition = centro.add(hacia_fuera.scale(minima / distancia));
         }
     }
 }
