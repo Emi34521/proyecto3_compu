@@ -11,6 +11,7 @@ const Material = @import("raytracer.zig").Material;
 const Textura = @import("textura.zig").Textura;
 const Modelo = @import("formas/Modelo.zig");
 const Anillo = @import("formas/ring.zig").anillo;
+const planeta = @import("formas/sphere.zig").Sphere;
 
 const htmlColor = @import("cute_colors.zig").htmlColor;
 const V3FromColor = @import("raytracer.zig").V3FromColor;
@@ -257,6 +258,9 @@ pub fn main() !void {
             traslacion(&objetos, dt);
             //dibujaría el estado. Al final no lo agregué y es algo innecesario.
             //rl.drawText("Rotación activa", 20, 10, 12, htmlColor("#8899ff")); //dibujar estado
+        }
+        if (rl.isKeyDown(.f)) {
+            viaje_rapido(&camera, objetos[3].Sphere, dt); //viaje rápido a la tierra
         }
 
         // La cámara mira hacia un punto justo delante de ella, calculado con yaw y pitch.
@@ -552,6 +556,22 @@ fn colisiones(camara: *Camera, objetos: []const Forma) void {
         const distancia = hacia_fuera.length();
         if (distancia < minima and distancia > 0.0001) {
             camara.Postition = centro.add(hacia_fuera.scale(minima / distancia));
+        }
+    }
+}
+// función auxiliar para crear un "viaje rápido" entre los planetas. No será un teletransporte como tal,
+// sino que se desplazará la cámara y la nave de forma automática hacía un punto cercano del planeta seleccionado.
+fn viaje_rapido(camara: *Camera, planetaO: planeta, dt: f32) void {
+    const direccion = planetaO.center.subtract(camara.Postition);
+    const destino = planetaO.center.add(direccion.normalize().scale(planetaO.radius + 5.0));
+    const distancia = direccion.length();
+    if (distancia > 0.1) {
+        const velocidad = 50.0; // unidades por segundo
+        const paso = velocidad * dt;
+        if (paso < distancia) {
+            camara.Postition = camara.Postition.add(direccion.normalize().scale(paso));
+        } else {
+            camara.Postition = destino;
         }
     }
 }
