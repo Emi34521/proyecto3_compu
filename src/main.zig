@@ -84,12 +84,16 @@ pub fn main() !void {
 
     var threaded: std.Io.Threaded = .init(gpa, .{});
     const io = threaded.io();
+    // frame buffer que sera el "main" y en el que se renderiza la pantalla en 3D
     var framebuffer = Framebuffer.init(width, height, .black, .white);
+    // este framebuffer se encargará de renderizar el mapa del sistema solar, que será en 2D
+    const framebuffer_mapa = Framebuffer.init(width, height, .black, .white);
+    _ = framebuffer_mapa;
 
     rl.initWindow(width, height, "Raytracer!!!");
     rl.setTraceLogLevel(.warning);
     defer rl.closeWindow();
-    rl.setTargetFPS(30);
+    rl.setTargetFPS(60);
 
     var last_frame_time = Clock.now(io);
     var delta: i64 = 1;
@@ -353,21 +357,88 @@ fn modo_camara(
 
 // Modo mapa: no hay movimiento de ningún tipo y el ray tracer no se vuelve a renderizar, se sigue mostrando el último frame.
 // Lo único que responde es el clic del mouse, que regresa al modo cámara.
-fn modo_mapa(framebuffer: *Framebuffer, modo: *Modo) !void {
-    // swap_buffers guarda una textura nueva en cada llamada y es clear() quien libera la anterior. Como aquí no se llama
-    // a clear() (para no borrar el frame congelado), hay que liberarla antes, o se llenaría la memoria de la GPU.
-    if (framebuffer.texture) |t| {
-        rl.unloadTexture(t);
-    }
+fn modo_mapa(framebuffer: *Framebuffer, modo: *Modo, planetas_CO2: []const Cuerpo, planetas: []Forma, ancho: f32, alto: f32) !void {
+    framebuffer.clear();
 
     if (rl.isMouseButtonPressed(.left)) {
         // aquí irá la selección del planeta con el mouse (planeta_indx) cuando exista el mapa.
         cambiar_modo(modo, .camara);
     }
+    const vista = calcularVistaMapa(cuerpos, ancho, alto);
+
+    // Dibujar órbitas
+    for (planetas_CO2) |c| {
+        if (c.orbita <= 0) continue;
+
+        const radio_orbita = c.orbita * vista.escala;
+        _ = radio_orbita;
+
+        //framebuffer.TM_circulo(cx: i32, cy: i32, radio: i32, color: Color)
+    }
+
+    // Dibujar planetas
+    for (planetas_CO2, 0..) |c, i| {
+        const esfera = switch (planetas[i]) {
+            .Sphere => |s| s,
+            else => continue,
+        };
+
+        const posicion = convertirPosicion(
+            vista,
+            esfera.center.x,
+            esfera.center.z,
+        );
+
+        const radio_visual = @max(5.0, c.radio * vista.escala);
+        framebuffer.TM_circulo_relleno(posicion[0], posicion[1], radio_visual, planetas_CO2[i].color_respaldo) catch |err| switch (err) {
+            error.BadCoordinates => @panic("Malas coordenadas"),
+        };
+    }
 
     try framebuffer.swap_buffers();
 }
+// struct para guardar las vistas del mapa.
+const VistaMapa = struct {
+    centro_x: f32,
+    centro_y: f32,
+    escala: f32,
+};
+// esta función escalaría el comportamiento en 3D de lo planetas y lo ajustaría a un entorno en 2D devolviendo el centro
+fn convertirPosicion(
+    vista: VistaMapa,
+    x: f32,
+    z: f32,
+) [2]i32 {
+    return .{
+        @intFromFloat(@round(vista.centro_x + x * vista.escala)),
+        @intFromFloat(@round(vista.centro_y - z * vista.escala)),
+    };
+}
+fn calcularVistaMapa(
+    cuerposs: []const Cuerpo,
+    ancho: f32,
+    alto: f32,
+) VistaMapa {
+    var orbita_maxima: f32 = 0;
 
+    for (cuerposs) |c| {
+        if (c.orbita > orbita_maxima) {
+            orbita_maxima = c.orbita;
+        }
+    }
+
+    const margen: f32 = 30.0;
+    const radio_mapa = @min(ancho, alto) / 2.0 - margen;
+
+    return .{
+        .centro_x = ancho / 2.0,
+        .centro_y = alto / 2.0,
+        .escala = if (orbita_maxima > 0)
+            radio_mapa / orbita_maxima
+        else
+            1.0,
+    };
+}
 fn render(io: std.Io, target: *Framebuffer, escenario: escena, camera: Camera) !void {
     //para crear concurrencia y que, en teoría, ganar más fps
     var group = std.Io.Group.init;
