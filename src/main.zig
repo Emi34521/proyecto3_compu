@@ -406,7 +406,7 @@ fn modo_mapa(framebuffer: *Framebuffer, modo: *Modo, planetas_CO2: []const Cuerp
     if (rl.isMouseButtonPressed(.left)) {
         // aquí irá la selección del planeta con el mouse (planeta_indx) cuando exista el mapa.
         cambiar_modo(modo, .camara);
-        estado.*.destino_indx = hover orelse 1;
+        estado.*.destino_indx = hover orelse 2;
     }
 
     try framebuffer.swap_buffers();
