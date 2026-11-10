@@ -62,6 +62,12 @@ var cuerpos = [_]Cuerpo{
     .{ .nombre = "Neptuno", .textura = "src/Texturas/neptuno.png", .color_respaldo = V3FromColor(htmlColor("#3f5fe0")), .radio = 3.5, .orbita = 103, .angulo_grados = 330, .albedo = 0.75, .especular = 0.2, .exponente = 40, .reflectividad = 0.05, .transparencia = 0, .indice_refraccion = 0, .vel_tr = 0.0006, .vel_rot = 1.5 },
 };
 
+// Los dos "modos" del programa. Cada uno decide qué hacen el mouse y el teclado y qué se muestra en la ventana.
+const Modo = enum {
+    camara, // primera persona: se mueve la cámara y se renderiza el ray tracer
+    mapa, // el mapa del sistema solar: no hay movimiento y el ray tracer queda congelado
+};
+
 pub fn main() !void {
     var alloc = switch (builtin.mode) {
         .Debug, .ReleaseSafe => std.heap.DebugAllocator(.{}).init,
@@ -192,111 +198,174 @@ pub fn main() !void {
     // yaw = 0 mira hacia +X. Aumentar yaw gira hacia la izquierda; aumentar pitch mira hacia arriba.
     var yaw: f32 = 0;
     var pitch: f32 = 0;
-    // Se limita para no mirar exactamente hacia arriba o abajo (ahí Forward queda paralelo al eje vertical).
-    const pitch_max: f32 = 85.0 * std.math.pi / 180.0;
-    const turnSpeed: f32 = std.math.pi / 2.0; // rad/s con las flechas
-    const mouseSensitivity: f32 = 0.0025; // rad por pixel
-    const moveSpeed: f32 = 40; // unidades por segundo; la rueda del mouse la cambia
 
     rl.disableCursor(); // esconde y captura el cursor para mirar con el mouse (Esc cierra la ventana)
     _ = rl.getMouseDelta(); // descarta el salto del primer frame
     var estado: viaje_rapido_estados = .{ .destino_indx = 6, .activo = false, .actual = camera.Postition, .anterior = camera.Postition, .progreso = 0.0, .inicio = camera.Postition, .duracion = 5.0, .yaw_inicial = yaw, .pitch_inicial = pitch };
+    var modo: Modo = .camara;
     while (!rl.windowShouldClose()) {
         defer {
             const now = Clock.now(io);
             delta = last_frame_time.durationTo(now).toMicroseconds();
             last_frame_time = now;
         }
-        framebuffer.clear();
 
         const dt: f32 = @as(f32, @floatFromInt(delta)) / 1_000_000;
 
-        // --- Mirar: mouse y flechas ---
-        const mouse = rl.getMouseDelta();
-        yaw -= mouse.x * mouseSensitivity;
-        pitch -= mouse.y * mouseSensitivity;
-        if (rl.isKeyDown(.left)) {
-            yaw += turnSpeed * dt;
+        // Tab alterna entre los dos modos. No se puede cambiar de modo en medio de un viaje rápido.
+        if (rl.isKeyPressed(.tab) and !estado.activo) {
+            cambiar_modo(&modo, if (modo == .camara) .mapa else .camara);
         }
-        if (rl.isKeyDown(.right)) {
-            yaw -= turnSpeed * dt;
-        }
-        if (rl.isKeyDown(.up)) {
-            pitch += turnSpeed * dt;
-        }
-        if (rl.isKeyDown(.down)) {
-            pitch -= turnSpeed * dt;
-        }
-        pitch = @max(-pitch_max, @min(pitch_max, pitch));
-        const speed = if (rl.isKeyDown(.left_shift)) moveSpeed * 2 else moveSpeed;
-        const step = speed * dt;
 
-        // --- Moverse: W/S adelante y atrás, A/D lateral, Espacio/Ctrl subir y bajar ---
-        if (rl.isKeyDown(.w) and !estado.activo) {
-            camera.Postition = camera.Postition.add(camera.Forward.scale(step));
-        }
-        if (rl.isKeyDown(.s) and !estado.activo) {
-            camera.Postition = camera.Postition.subtract(camera.Forward.scale(step));
-        }
-        if (rl.isKeyDown(.d) and !estado.activo) {
-            camera.Postition = camera.Postition.add(camera.Right.scale(step));
-        }
-        if (rl.isKeyDown(.a) and !estado.activo) {
-            camera.Postition = camera.Postition.subtract(camera.Right.scale(step));
-        }
-        if (rl.isKeyDown(.space)) {
-            camera.Postition.y += step;
-        }
-        if (rl.isKeyDown(.left_control)) {
-            camera.Postition.y -= step;
-        }
-        if (rl.isKeyDown(.r)) {
-            try rotacion(&objetos, dt);
-            //rl.drawText("Rotación activa", 20, 10, 12, htmlColor("#8899ff")); //dibujar estado
-        }
-        if (rl.isKeyDown(.t)) {
-            traslacion(&objetos, dt);
-            //dibujaría el estado. Al final no lo agregué y es algo innecesario.
-            //rl.drawText("Rotación activa", 20, 10, 12, htmlColor("#8899ff")); //dibujar estado
-        }
-        // esta parte todavía está en progreso. Ahora se le da a la tecla F y se va a a la tierra.
-        // primero se calcula si se presionó la tecla o no y que no hay un viaje activo. Por lo que se activaría
-        if (rl.isKeyPressed(.f) and !estado.activo) {
-            viaje_rapido(
+        switch (modo) {
+            .camara => try modo_camara(
+                io,
+                &framebuffer,
+                escenario1,
+                &objetos,
                 &camera,
-                objetos[estado.destino_indx].Sphere,
-                dt,
-                &estado,
                 &yaw,
                 &pitch,
-            );
-        }
-        // ahora el viaje está activo y simplemente se continua, de esta forma se puede guardar y hacer la parabola bien
-        // además, bloquea los demás movimientos (wasd)y bloque de iniciar un nuevo viaje.
-        if (estado.activo) {
-            viaje_rapido(
-                &camera,
-                objetos[estado.destino_indx].Sphere,
-                dt,
                 &estado,
-                &yaw,
-                &pitch,
-            );
+                dt,
+            ),
+            .mapa => try modo_mapa(&framebuffer, &modo),
         }
-
-        // La cámara mira hacia un punto justo delante de ella, calculado con yaw y pitch.
-        const dir = rl.Vector3{
-            .x = @cos(pitch) * @cos(yaw),
-            .y = @sin(pitch),
-            .z = @cos(pitch) * @sin(yaw),
-        };
-        colisiones(&camera, &objetos); // evita que la cámara atraviese los planetas y el sol
-        camera.lookAt(camera.Postition.add(dir));
-
-        try render(io, &framebuffer, escenario1, camera);
-
-        try framebuffer.swap_buffers();
     }
+}
+
+// Cambia de modo y ajusta el cursor: en el mapa el cursor se ve y se puede usar, en la cámara se captura para mirar con el mouse.
+fn cambiar_modo(modo: *Modo, nuevo: Modo) void {
+    modo.* = nuevo;
+    switch (nuevo) {
+        .camara => {
+            rl.disableCursor();
+            _ = rl.getMouseDelta(); // descarta el movimiento acumulado mientras el cursor estaba libre, para que la cámara no salte
+        },
+        .mapa => rl.enableCursor(),
+    }
+}
+
+// Modo cámara: es todo lo que antes estaba directamente dentro del bucle de main. Mueve y apunta la cámara, avanza el mundo
+// (rotación, traslación y viaje rápido) y renderiza el ray tracer.
+fn modo_camara(
+    io: std.Io,
+    framebuffer: *Framebuffer,
+    escenario: escena,
+    objetos: []Forma,
+    camera: *Camera,
+    yaw: *f32,
+    pitch: *f32,
+    estado: *viaje_rapido_estados,
+    dt: f32,
+) !void {
+    // Se limita para no mirar exactamente hacia arriba o abajo (ahí Forward queda paralelo al eje vertical).
+    const pitch_max: f32 = 85.0 * std.math.pi / 180.0;
+    const turnSpeed: f32 = std.math.pi / 2.0; // rad/s con las flechas
+    const mouseSensitivity: f32 = 0.0025; // rad por pixel
+    const moveSpeed: f32 = 40; // unidades por segundo; la rueda del mouse la cambia
+
+    framebuffer.clear();
+
+    // --- Mirar: mouse y flechas ---
+    const mouse = rl.getMouseDelta();
+    yaw.* -= mouse.x * mouseSensitivity;
+    pitch.* -= mouse.y * mouseSensitivity;
+    if (rl.isKeyDown(.left)) {
+        yaw.* += turnSpeed * dt;
+    }
+    if (rl.isKeyDown(.right)) {
+        yaw.* -= turnSpeed * dt;
+    }
+    if (rl.isKeyDown(.up)) {
+        pitch.* += turnSpeed * dt;
+    }
+    if (rl.isKeyDown(.down)) {
+        pitch.* -= turnSpeed * dt;
+    }
+    pitch.* = @max(-pitch_max, @min(pitch_max, pitch.*));
+    const speed = if (rl.isKeyDown(.left_shift)) moveSpeed * 2 else moveSpeed;
+    const step = speed * dt;
+
+    // --- Moverse: W/S adelante y atrás, A/D lateral, Espacio/Ctrl subir y bajar ---
+    if (rl.isKeyDown(.w) and !estado.activo) {
+        camera.Postition = camera.Postition.add(camera.Forward.scale(step));
+    }
+    if (rl.isKeyDown(.s) and !estado.activo) {
+        camera.Postition = camera.Postition.subtract(camera.Forward.scale(step));
+    }
+    if (rl.isKeyDown(.d) and !estado.activo) {
+        camera.Postition = camera.Postition.add(camera.Right.scale(step));
+    }
+    if (rl.isKeyDown(.a) and !estado.activo) {
+        camera.Postition = camera.Postition.subtract(camera.Right.scale(step));
+    }
+    if (rl.isKeyDown(.space)) {
+        camera.Postition.y += step;
+    }
+    if (rl.isKeyDown(.left_control)) {
+        camera.Postition.y -= step;
+    }
+    if (rl.isKeyDown(.r)) {
+        try rotacion(objetos, dt);
+    }
+    if (rl.isKeyDown(.t)) {
+        traslacion(objetos, dt);
+    }
+    // esta parte todavía está en progreso. Ahora se le da a la tecla F y se va a a la tierra.
+    // primero se calcula si se presionó la tecla o no y que no hay un viaje activo. Por lo que se activaría
+    if (rl.isKeyPressed(.f) and !estado.activo) {
+        viaje_rapido(
+            camera,
+            objetos[estado.destino_indx].Sphere,
+            dt,
+            estado,
+            yaw,
+            pitch,
+        );
+    }
+    // ahora el viaje está activo y simplemente se continua, de esta forma se puede guardar y hacer la parabola bien
+    // además, bloquea los demás movimientos (wasd)y bloque de iniciar un nuevo viaje.
+    if (estado.activo) {
+        viaje_rapido(
+            camera,
+            objetos[estado.destino_indx].Sphere,
+            dt,
+            estado,
+            yaw,
+            pitch,
+        );
+    }
+
+    // La cámara mira hacia un punto justo delante de ella, calculado con yaw y pitch.
+    const dir = rl.Vector3{
+        .x = @cos(pitch.*) * @cos(yaw.*),
+        .y = @sin(pitch.*),
+        .z = @cos(pitch.*) * @sin(yaw.*),
+    };
+    colisiones(camera, objetos); // evita que la cámara atraviese los planetas y el sol
+    camera.lookAt(camera.Postition.add(dir));
+
+    try render(io, framebuffer, escenario, camera.*);
+
+    try framebuffer.swap_buffers();
+}
+
+// Modo mapa: no hay movimiento de ningún tipo y el ray tracer no se vuelve a renderizar, se sigue mostrando el último frame.
+// Lo único que responde es el clic del mouse, que regresa al modo cámara.
+fn modo_mapa(framebuffer: *Framebuffer, modo: *Modo) !void {
+    // swap_buffers guarda una textura nueva en cada llamada y es clear() quien libera la anterior. Como aquí no se llama
+    // a clear() (para no borrar el frame congelado), hay que liberarla antes, o se llenaría la memoria de la GPU.
+    if (framebuffer.texture) |t| {
+        rl.unloadTexture(t);
+    }
+
+    if (rl.isMouseButtonPressed(.left)) {
+        // aquí irá la selección del planeta con el mouse (planeta_indx) cuando exista el mapa.
+        cambiar_modo(modo, .camara);
+    }
+
+    try framebuffer.swap_buffers();
 }
 
 fn render(io: std.Io, target: *Framebuffer, escenario: escena, camera: Camera) !void {

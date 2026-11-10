@@ -1,5 +1,4 @@
 const rl = @import("raylib");
-const std = @import("std");
 
 pub const Framebuffer = struct {
     width: i32,
@@ -32,6 +31,56 @@ pub const Framebuffer = struct {
         if (x >= self.width or y >= self.height) return error.BadCoordinates;
         self.color_buff.drawPixel(x, y, color);
     }
+    // funciones de dibujo creadas con ayuda de claude. Básicamente hacen un círculo, relleno del círculo y una línea horizontal.
+    // Línea horizontal de x0 a x1 (inclusive) en la fila y. Los extremos se recortan una sola vez, no pixel por pixel.
+    pub fn TM_linea_horizontal(self: *Framebuffer, x0: i32, x1: i32, y: i32, color: rl.Color) void {
+        if (y < 0 or y >= self.height) return;
+        const desde = @max(@min(x0, x1), 0);
+        const hasta = @min(@max(x0, x1), self.width - 1);
+        var x = desde;
+        while (x <= hasta) : (x += 1) {
+            self.color_buff.drawPixel(x, y, color);
+        }
+    }
+
+    // Contorno de un círculo con el algoritmo del punto medio (Bresenham para círculos).
+    // Solo calcula un octavo del círculo y refleja cada punto en los otros siete. Usa solo enteros.
+    pub fn TM_circulo(self: *Framebuffer, cx: i32, cy: i32, radio: i32, color: rl.Color) void {
+        if (radio < 0) return;
+        var x: i32 = 0;
+        var y: i32 = radio;
+        var d: i32 = 1 - radio; // decide si el siguiente pixel se queda en la misma fila o baja una
+        while (x <= y) {
+            self.set_pixel(cx + x, cy + y, color);
+            self.set_pixel(cx - x, cy + y, color);
+            self.set_pixel(cx + x, cy - y, color);
+            self.set_pixel(cx - x, cy - y, color);
+            self.set_pixel(cx + y, cy + x, color);
+            self.set_pixel(cx - y, cy + x, color);
+            self.set_pixel(cx + y, cy - x, color);
+            self.set_pixel(cx - y, cy - x, color);
+            if (d < 0) {
+                d += 2 * x + 3;
+            } else {
+                d += 2 * (x - y) + 5;
+                y -= 1;
+            }
+            x += 1;
+        }
+    }
+
+    // Círculo relleno una línea horizontal por cada fila. El ancho de cada fila sale de x² + y² = r².
+    // Cada pixel se pinta una sola vez, así que también funciona con colores semitransparentes.
+    // Para dibujarlo con borde, llama primero a este y después a TM_circulo con otro color.
+    pub fn TM_circulo_relleno(self: *Framebuffer, cx: i32, cy: i32, radio: i32, color: rl.Color) void {
+        if (radio < 0) return;
+        const r2: i32 = radio * radio;
+        var dy: i32 = -radio;
+        while (dy <= radio) : (dy += 1) {
+            const mitad: i32 = @intFromFloat(@round(@sqrt(@as(f32, @floatFromInt(r2 - dy * dy)))));
+            self.TM_linea_horizontal(cx - mitad, cx + mitad, cy + dy, color);
+        }
+    }
 
     pub fn set_background_color(self: *Framebuffer, color: rl.Color) void {
         self.background_color = color;
@@ -43,16 +92,6 @@ pub const Framebuffer = struct {
 
     pub fn render_to_file(self: Framebuffer, filename: []const u8) !void {
         if (!self.color_buff.exportToFile(@ptrCast(filename))) return error.CouldntWriteFile;
-    }
-    pub fn TM_circulo(self: *Framebuffer, x: i32, y: i32, radio: i32, color: rl.Color) !void {
-        if (x >= self.width or y >= self.height) return error.BadCoordinates;
-        const centro = rl.Vector2{ .x = @as(f32, x), .y = @as(f32, y) };
-        for (0..361) |angulo| {
-            const radianes = @as(f32, angulo) * (std.math.pi / 180.0);
-            const px = @as(i32, centro.x + radio * rl.cos(radianes));
-            const py = @as(i32, centro.y + radio * rl.sin(radianes));
-            self.set_pixel(px, py, color) catch {};
-        }
     }
 
     pub fn swap_buffers(self: *Framebuffer) !void {
