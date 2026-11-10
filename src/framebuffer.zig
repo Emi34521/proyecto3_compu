@@ -45,20 +45,20 @@ pub const Framebuffer = struct {
 
     // Contorno de un círculo con el algoritmo del punto medio (Bresenham para círculos).
     // Solo calcula un octavo del círculo y refleja cada punto en los otros siete. Usa solo enteros.
-    pub fn TM_circulo(self: *Framebuffer, cx: i32, cy: i32, radio: i32, color: rl.Color) void {
+    pub fn TM_circulo(self: *Framebuffer, cx: i32, cy: i32, radio: i32, color: rl.Color) !void {
         if (radio < 0) return;
         var x: i32 = 0;
         var y: i32 = radio;
         var d: i32 = 1 - radio; // decide si el siguiente pixel se queda en la misma fila o baja una
         while (x <= y) {
-            self.set_pixel(cx + x, cy + y, color);
-            self.set_pixel(cx - x, cy + y, color);
-            self.set_pixel(cx + x, cy - y, color);
-            self.set_pixel(cx - x, cy - y, color);
-            self.set_pixel(cx + y, cy + x, color);
-            self.set_pixel(cx - y, cy + x, color);
-            self.set_pixel(cx + y, cy - x, color);
-            self.set_pixel(cx - y, cy - x, color);
+            try self.set_pixel(cx + x, cy + y, color);
+            try self.set_pixel(cx - x, cy + y, color);
+            try self.set_pixel(cx + x, cy - y, color);
+            try self.set_pixel(cx - x, cy - y, color);
+            try self.set_pixel(cx + y, cy + x, color);
+            try self.set_pixel(cx - y, cy + x, color);
+            try self.set_pixel(cx + y, cy - x, color);
+            try self.set_pixel(cx - y, cy - x, color);
             if (d < 0) {
                 d += 2 * x + 3;
             } else {
@@ -72,7 +72,7 @@ pub const Framebuffer = struct {
     // Círculo relleno una línea horizontal por cada fila. El ancho de cada fila sale de x² + y² = r².
     // Cada pixel se pinta una sola vez, así que también funciona con colores semitransparentes.
     // Para dibujarlo con borde, llama primero a este y después a TM_circulo con otro color.
-    pub fn TM_circulo_relleno(self: *Framebuffer, cx: i32, cy: i32, radio: i32, color: rl.Color) void {
+    pub fn TM_circulo_relleno(self: *Framebuffer, cx: i32, cy: i32, radio: i32, color: rl.Color) !void {
         if (radio < 0) return;
         const r2: i32 = radio * radio;
         var dy: i32 = -radio;

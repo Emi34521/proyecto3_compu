@@ -87,8 +87,7 @@ pub fn main() !void {
     // frame buffer que sera el "main" y en el que se renderiza la pantalla en 3D
     var framebuffer = Framebuffer.init(width, height, .black, .white);
     // este framebuffer se encargará de renderizar el mapa del sistema solar, que será en 2D
-    const framebuffer_mapa = Framebuffer.init(width, height, .black, .white);
-    _ = framebuffer_mapa;
+    var framebuffer_mapa = Framebuffer.init(width, height, .black, .white);
 
     rl.initWindow(width, height, "Raytracer!!!");
     rl.setTraceLogLevel(.warning);
@@ -205,7 +204,7 @@ pub fn main() !void {
 
     rl.disableCursor(); // esconde y captura el cursor para mirar con el mouse (Esc cierra la ventana)
     _ = rl.getMouseDelta(); // descarta el salto del primer frame
-    var estado: viaje_rapido_estados = .{ .destino_indx = 6, .activo = false, .actual = camera.Postition, .anterior = camera.Postition, .progreso = 0.0, .inicio = camera.Postition, .duracion = 5.0, .yaw_inicial = yaw, .pitch_inicial = pitch };
+    var estado: viaje_rapido_estados = .{ .destino_indx = 1, .activo = false, .actual = camera.Postition, .anterior = camera.Postition, .progreso = 0.0, .inicio = camera.Postition, .duracion = 5.0, .yaw_inicial = yaw, .pitch_inicial = pitch };
     var modo: Modo = .camara;
     while (!rl.windowShouldClose()) {
         defer {
@@ -233,7 +232,7 @@ pub fn main() !void {
                 &estado,
                 dt,
             ),
-            .mapa => try modo_mapa(&framebuffer, &modo),
+            .mapa => try modo_mapa(&framebuffer_mapa, &modo, &cuerpos, &objetos, width, height, &estado),
         }
     }
 }
@@ -316,6 +315,7 @@ fn modo_camara(
     if (rl.isKeyDown(.t)) {
         traslacion(objetos, dt);
     }
+
     // esta parte todavía está en progreso. Ahora se le da a la tecla F y se va a a la tierra.
     // primero se calcula si se presionó la tecla o no y que no hay un viaje activo. Por lo que se activaría
     if (rl.isKeyPressed(.f) and !estado.activo) {
@@ -357,23 +357,20 @@ fn modo_camara(
 
 // Modo mapa: no hay movimiento de ningún tipo y el ray tracer no se vuelve a renderizar, se sigue mostrando el último frame.
 // Lo único que responde es el clic del mouse, que regresa al modo cámara.
-fn modo_mapa(framebuffer: *Framebuffer, modo: *Modo, planetas_CO2: []const Cuerpo, planetas: []Forma, ancho: f32, alto: f32) !void {
+fn modo_mapa(framebuffer: *Framebuffer, modo: *Modo, planetas_CO2: []const Cuerpo, planetas: []Forma, ancho: f32, alto: f32, estado: *viaje_rapido_estados) !void {
     framebuffer.clear();
+    const vista = calcularVistaMapa(planetas_CO2, ancho, alto);
 
-    if (rl.isMouseButtonPressed(.left)) {
-        // aquí irá la selección del planeta con el mouse (planeta_indx) cuando exista el mapa.
-        cambiar_modo(modo, .camara);
-    }
-    const vista = calcularVistaMapa(cuerpos, ancho, alto);
-
-    // Dibujar órbitas
+    // Dibujar las óribas de los planetas
     for (planetas_CO2) |c| {
         if (c.orbita <= 0) continue;
-
-        const radio_orbita = c.orbita * vista.escala;
-        _ = radio_orbita;
-
-        //framebuffer.TM_circulo(cx: i32, cy: i32, radio: i32, color: Color)
+        const r: i32 = @intFromFloat(@round(c.orbita * vista.escala));
+        try framebuffer.TM_circulo(
+            @intFromFloat(vista.centro_x),
+            @intFromFloat(vista.centro_y),
+            r,
+            .dark_gray,
+        );
     }
 
     // Dibujar planetas
@@ -390,9 +387,26 @@ fn modo_mapa(framebuffer: *Framebuffer, modo: *Modo, planetas_CO2: []const Cuerp
         );
 
         const radio_visual = @max(5.0, c.radio * vista.escala);
-        framebuffer.TM_circulo_relleno(posicion[0], posicion[1], radio_visual, planetas_CO2[i].color_respaldo) catch |err| switch (err) {
-            error.BadCoordinates => @panic("Malas coordenadas"),
+        try framebuffer.TM_circulo_relleno(posicion[0], posicion[1], @as(i32, @intFromFloat(radio_visual)), V3ToColor(planetas_CO2[i].color_respaldo));
+    }
+    // controles del mouse para poder determinar a donde se irá el viaje rápido.
+    const m = rl.getMousePosition();
+    var hover: ?usize = null;
+    for (planetas_CO2, 0..) |c, i| {
+        const esfera = switch (planetas[i]) {
+            .Sphere => |s| s,
+            else => continue,
         };
+        const p = convertirPosicion(vista, esfera.center.x, esfera.center.z);
+        const r = @max(12.0, c.radio * vista.escala);
+        const dx = m.x - @as(f32, @floatFromInt(p[0]));
+        const dy = m.y - @as(f32, @floatFromInt(p[1]));
+        if (dx * dx + dy * dy <= r * r) hover = i;
+    }
+    if (rl.isMouseButtonPressed(.left)) {
+        // aquí irá la selección del planeta con el mouse (planeta_indx) cuando exista el mapa.
+        cambiar_modo(modo, .camara);
+        estado.*.destino_indx = hover orelse 1;
     }
 
     try framebuffer.swap_buffers();
