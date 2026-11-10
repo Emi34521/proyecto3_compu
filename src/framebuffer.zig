@@ -1,4 +1,5 @@
 const rl = @import("raylib");
+const std = @import("std");
 
 pub const Framebuffer = struct {
     width: i32,
@@ -42,6 +43,16 @@ pub const Framebuffer = struct {
 
     pub fn render_to_file(self: Framebuffer, filename: []const u8) !void {
         if (!self.color_buff.exportToFile(@ptrCast(filename))) return error.CouldntWriteFile;
+    }
+    pub fn TM_circulo(self: *Framebuffer, x: i32, y: i32, radio: i32, color: rl.Color) !void {
+        if (x >= self.width or y >= self.height) return error.BadCoordinates;
+        const centro = rl.Vector2{ .x = @as(f32, x), .y = @as(f32, y) };
+        for (0..361) |angulo| {
+            const radianes = @as(f32, angulo) * (std.math.pi / 180.0);
+            const px = @as(i32, centro.x + radio * rl.cos(radianes));
+            const py = @as(i32, centro.y + radio * rl.sin(radianes));
+            self.set_pixel(px, py, color) catch {};
+        }
     }
 
     pub fn swap_buffers(self: *Framebuffer) !void {

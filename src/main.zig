@@ -200,7 +200,7 @@ pub fn main() !void {
 
     rl.disableCursor(); // esconde y captura el cursor para mirar con el mouse (Esc cierra la ventana)
     _ = rl.getMouseDelta(); // descarta el salto del primer frame
-
+    var estado: viaje_rapido_estados = .{ .destino_indx = 6, .activo = false, .actual = camera.Postition, .anterior = camera.Postition, .progreso = 0.0, .inicio = camera.Postition, .duracion = 5.0, .yaw_inicial = yaw, .pitch_inicial = pitch };
     while (!rl.windowShouldClose()) {
         defer {
             const now = Clock.now(io);
@@ -232,16 +232,16 @@ pub fn main() !void {
         const step = speed * dt;
 
         // --- Moverse: W/S adelante y atrás, A/D lateral, Espacio/Ctrl subir y bajar ---
-        if (rl.isKeyDown(.w)) {
+        if (rl.isKeyDown(.w) and !estado.activo) {
             camera.Postition = camera.Postition.add(camera.Forward.scale(step));
         }
-        if (rl.isKeyDown(.s)) {
+        if (rl.isKeyDown(.s) and !estado.activo) {
             camera.Postition = camera.Postition.subtract(camera.Forward.scale(step));
         }
-        if (rl.isKeyDown(.d)) {
+        if (rl.isKeyDown(.d) and !estado.activo) {
             camera.Postition = camera.Postition.add(camera.Right.scale(step));
         }
-        if (rl.isKeyDown(.a)) {
+        if (rl.isKeyDown(.a) and !estado.activo) {
             camera.Postition = camera.Postition.subtract(camera.Right.scale(step));
         }
         if (rl.isKeyDown(.space)) {
@@ -259,8 +259,29 @@ pub fn main() !void {
             //dibujaría el estado. Al final no lo agregué y es algo innecesario.
             //rl.drawText("Rotación activa", 20, 10, 12, htmlColor("#8899ff")); //dibujar estado
         }
-        if (rl.isKeyDown(.f)) {
-            viaje_rapido(&camera, objetos[3].Sphere, dt); //viaje rápido a la tierra
+        // esta parte todavía está en progreso. Ahora se le da a la tecla F y se va a a la tierra.
+        // primero se calcula si se presionó la tecla o no y que no hay un viaje activo. Por lo que se activaría
+        if (rl.isKeyPressed(.f) and !estado.activo) {
+            viaje_rapido(
+                &camera,
+                objetos[estado.destino_indx].Sphere,
+                dt,
+                &estado,
+                &yaw,
+                &pitch,
+            );
+        }
+        // ahora el viaje está activo y simplemente se continua, de esta forma se puede guardar y hacer la parabola bien
+        // además, bloquea los demás movimientos (wasd)y bloque de iniciar un nuevo viaje.
+        if (estado.activo) {
+            viaje_rapido(
+                &camera,
+                objetos[estado.destino_indx].Sphere,
+                dt,
+                &estado,
+                &yaw,
+                &pitch,
+            );
         }
 
         // La cámara mira hacia un punto justo delante de ella, calculado con yaw y pitch.
@@ -559,19 +580,88 @@ fn colisiones(camara: *Camera, objetos: []const Forma) void {
         }
     }
 }
+// para manejar los estados del viaje rápido, porque no se estará utilizando una trayectoria.
+const viaje_rapido_estados = struct {
+    destino_indx: usize,
+    activo: bool,
+    actual: rl.Vector3,
+    anterior: rl.Vector3,
+    progreso: f32 = 0.0,
+    inicio: rl.Vector3,
+    duracion: f32 = 5.0, // segundos
+    yaw_inicial: f32,
+    pitch_inicial: f32,
+};
 // función auxiliar para crear un "viaje rápido" entre los planetas. No será un teletransporte como tal,
 // sino que se desplazará la cámara y la nave de forma automática hacía un punto cercano del planeta seleccionado.
-fn viaje_rapido(camara: *Camera, planetaO: planeta, dt: f32) void {
-    const direccion = planetaO.center.subtract(camara.Postition);
-    const destino = planetaO.center.add(direccion.normalize().scale(planetaO.radius + 5.0));
-    const distancia = direccion.length();
-    if (distancia > 0.1) {
-        const velocidad = 50.0; // unidades por segundo
-        const paso = velocidad * dt;
-        if (paso < distancia) {
-            camara.Postition = camara.Postition.add(direccion.normalize().scale(paso));
-        } else {
-            camara.Postition = destino;
-        }
+fn viaje_rapido(
+    camara: *Camera,
+    planetaO: planeta,
+    dt: f32,
+    estado: *viaje_rapido_estados,
+    yaw: *f32,
+    pitch: *f32,
+) void {
+
+    // Iniciar el viaje si todavía no está activo
+    if (!estado.activo) {
+        estado.activo = true;
+        estado.progreso = 0.0;
+
+        estado.inicio = camara.Postition;
+        estado.actual = camara.Postition;
+        estado.anterior = camara.Postition;
+    }
+
+    // Actualizar progreso
+    estado.progreso += dt / estado.duracion;
+    estado.progreso = @min(estado.progreso, 1.0);
+
+    // Interpolación suave
+    const p = estado.progreso;
+    const s = p * p * (3.0 - 2.0 * p);
+
+    // Calcular destino con un radio más grande para evitar atravezarlo
+    const d_llegada = 3.0 * (planetaO.radius + 5.0);
+    // uso al sol como "pivote" para que la cámara pueda hacer el viaje
+    // recordar que el sol está en 0,0,0 por lo que uso el .zero(), sino, se estaría viendo la sombra del planeta.
+    const hacia_sol = rl.Vector3.zero().subtract(planetaO.center).normalize();
+    const P0 = estado.inicio;
+
+    const P1 = planetaO.center.add(hacia_sol.scale(d_llegada));
+
+    // Calcular parábola
+    // L es el vector de inicio a fin, H es la altura máxima de la parábola, B es el punto base en la línea entre P0 y P1
+    const L = P1.subtract(P0);
+    const H = @max(0.1 * L.length(), 25.0);
+
+    const B = P0.add(L.scale(s));
+    // La altura de la parábola se calcula con la fórmula de una parábola: y = 4 * H * s * (1 - s)
+    const salto = rl.Vector3{
+        .x = 0,
+        .y = H * (4.0 * s * (1.0 - s)),
+        .z = 0,
+    };
+    // se suma el salto a la base para obtener la posición final de la cámara
+    const camrafinal = B.add(salto);
+
+    // Actualizar cámara
+    estado.anterior = camara.Postition;
+    camara.Postition = camrafinal;
+    estado.actual = camrafinal;
+    // la cámara siempre estará viendo al centro del planeta durante el viaje rápido.
+    const d = planetaO.center.subtract(camara.Postition).normalize();
+    const yaw_deseado = std.math.atan2(d.z, d.x);
+    const pitch_desseado = std.math.asin(d.y);
+    const pitch_max: f32 = 85.0 * std.math.pi / 180.0;
+    const pitch_nuevo = estado.pitch_inicial + (pitch_desseado - estado.pitch_inicial) * s;
+    pitch.* = @max(-pitch_max, @min(pitch_max, pitch_nuevo));
+    const dif = yaw_deseado - estado.yaw_inicial;
+    const dif_corta = std.math.atan2(@sin(dif), @cos(dif)); // lleva la diferencia al rango -π..π
+    yaw.* = estado.yaw_inicial + dif_corta * s;
+    // Finalizar. Debe de ser mayor o igual a 1, porque muchas veces nunca será exactamente 1.0
+    if (estado.progreso >= 1.0) {
+        estado.activo = false;
+        estado.progreso = 0.0;
     }
 }
