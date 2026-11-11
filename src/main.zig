@@ -360,6 +360,36 @@ fn modo_camara(
 fn modo_mapa(framebuffer: *Framebuffer, modo: *Modo, planetas_CO2: []const Cuerpo, planetas: []Forma, ancho: f32, alto: f32, estado: *viaje_rapido_estados) !void {
     framebuffer.clear();
     const vista = calcularVistaMapa(planetas_CO2, ancho, alto);
+    //dibujar estrellas de fondo
+    // se inicia con una seed cualquiera
+    var seed = std.Random.DefaultPrng.init(344521);
+    // array de posibles radios para las estrellas.
+    const estrellasR = [_]i32{ 1, 2, 3, 4, 5 };
+    // para poder utilizar el random
+    const random = seed.random();
+    // aray con los colores
+    const colores = [_]rl.Color{
+        .white,
+        .ray_white,
+        .light_gray,
+        .yellow,
+        .gold,
+        .orange,
+        .sky_blue, //
+        .init(200, 220, 255, 255), // Blanco azulado sutil
+        .init(255, 240, 200, 255), // Blanco crema cálido
+    };
+    // porque quiero 350 estrellas y no voy a utilizar el contador i, por eso lo dejo como |_|
+    for (0..351) |_| {
+        // random de todos los parámetros para la pantalla para eso necesito un random entre 10 y weight o height
+        // de lo contrario tendrá badcoordinates.
+        const random_x = random.intRangeAtMost(i32, 10, 1290);
+        const random_y = random.intRangeAtMost(i32, 10, 890);
+        const random_rad = random.intRangeAtMost(i32, 0, estrellasR.len);
+        const random_color = random.intRangeAtMost(usize, 0, colores.len);
+        // se agregan los valores y se dibuja el círculo
+        try framebuffer.TM_circulo_relleno(random_x, random_y, random_rad, colores[random_color]);
+    }
 
     // Dibujar las óribas de los planetas
     for (planetas_CO2) |c| {
@@ -389,6 +419,17 @@ fn modo_mapa(framebuffer: *Framebuffer, modo: *Modo, planetas_CO2: []const Cuerp
         const radio_visual = @max(5.0, c.radio * vista.escala);
         try framebuffer.TM_circulo_relleno(posicion[0], posicion[1], @as(i32, @intFromFloat(radio_visual)), V3ToColor(planetas_CO2[i].color_respaldo));
     }
+    // el objeto, proximamente la nave aparece en el mapa como un círculo de color verde
+    // básicamente uso los cálculos para establecer la escala y luego ingreso un radio arbitrario.
+    const nave = planetas[planetas_CO2.len].Modelo;
+    const margen: f32 = 30.0;
+    const radio_mapa = @min(ancho, alto) / 2.0 - margen;
+    const escala = radio_mapa / 103;
+    const mapa_view = VistaMapa{ .escala = escala, .centro_x = ancho / 2.0, .centro_y = alto / 2.0 };
+    const nave_coor = convertirPosicion(mapa_view, nave.center.x, nave.center.z);
+    // dibujo el círculo verde de la nave
+    try framebuffer.TM_circulo_relleno(nave_coor[0], nave_coor[1], 10, .green);
+
     // controles del mouse para poder determinar a donde se irá el viaje rápido.
     const m = rl.getMousePosition();
     var hover: ?usize = null;
@@ -408,7 +449,6 @@ fn modo_mapa(framebuffer: *Framebuffer, modo: *Modo, planetas_CO2: []const Cuerp
         cambiar_modo(modo, .camara);
         estado.*.destino_indx = hover orelse 2;
     }
-
     try framebuffer.swap_buffers();
 }
 // struct para guardar las vistas del mapa.
