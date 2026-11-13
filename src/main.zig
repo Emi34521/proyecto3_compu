@@ -160,7 +160,7 @@ pub fn main() !void {
     // el modelo no lo hice yo y por eso está en el gitignore porque obviamente no me pertenece. Para poder correr bien el proyecto
     // se necesita de descargar https://sketchfab.com/3d-models/low-poly-space-ship-587941c9c11742c6b82dfb99e7b210b9
     // y hacer la conversión de blender a .obj
-    var asteroide = try Modelo.Modelo.init(io, gpa, "src/modelos/Nave_lowpoly.obj", roca, 1.2, .zero());
+    var asteroide = try Modelo.Modelo.init(io, gpa, "src/modelos/cubo.obj", roca, 1.2, .zero());
     defer asteroide.deinit(gpa);
     objetos[cuerpos.len] = .{ .Modelo = asteroide };
     const anillo: Anillo = .{
@@ -391,8 +391,8 @@ fn modo_mapa(framebuffer: *Framebuffer, modo: *Modo, planetas_CO2: []const Cuerp
     for (0..351) |_| {
         // random de todos los parámetros para la pantalla para eso necesito un random entre 10 y weight o height
         // de lo contrario tendrá badcoordinates.
-        const random_x = random.intRangeAtMost(i32, 10, 1290);
-        const random_y = random.intRangeAtMost(i32, 10, 890);
+        const random_x = random.intRangeAtMost(i32, 10, 1300);
+        const random_y = random.intRangeAtMost(i32, 10, 900);
         const random_rad = random.intRangeAtMost(i32, 0, estrellasR.len);
         const random_color = random.intRangeAtMost(usize, 0, colores.len);
         // se agregan los valores y se dibuja el círculo
@@ -767,7 +767,7 @@ fn colisiones(camara: *Camera, objetos: []const Forma) void {
         switch (obj) {
             .Sphere => |e| {
                 centro = e.center;
-                minima = e.radius + 14.0;
+                minima = e.radius + 15.0;
             },
             .Modelo => |m| {
                 centro = m.center;
