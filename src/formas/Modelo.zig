@@ -16,6 +16,10 @@ pub const Modelo = struct {
     //olvidé que center era un vector 3 XD
     center: rl.Vector3,
     radio: f32,
+    posicion: rl.Vector3,
+    derecha: rl.Vector3 = .zero(),
+    arriba: rl.Vector3 = .zero(),
+    adelante: rl.Vector3 = .zero(),
 
     /// Carga un .obj. Igual que Textura.init reserva memoria con gpa y se libera con deinit(gpa).
     /// Cada posición del archivo se transforma como posicion * escala + desplazamiento.
@@ -88,6 +92,7 @@ pub const Modelo = struct {
             .Material = material,
             .radio = mayor_g,
             .center = centro,
+            .posicion = desplazamiento,
         };
     }
 
@@ -99,14 +104,25 @@ pub const Modelo = struct {
     pub fn intersect(self: Modelo, origin: rl.Vector3, direction: rl.Vector3) ?Intersect {
         // verificar si el rayo le pega a una esfera antes de si quiera empezar a renderizar todo.
         // prácticamente reutilizar el código de la esfera.
+        const o = origin.subtract(self.posicion);
+        const origen_local = rl.Vector3{
+            .x = o.dotProduct(self.derecha),
+            .y = o.dotProduct(self.arriba),
+            .z = o.dotProduct(self.adelante),
+        };
+        const direccion_local = rl.Vector3{
+            .x = direction.dotProduct(self.derecha),
+            .y = direction.dotProduct(self.arriba),
+            .z = direction.dotProduct(self.adelante),
+        };
 
-        const center_to_origin = origin.subtract(self.center);
+        const center_to_origin = origen_local.subtract(self.center);
 
         // Estos son a,b y c como en ax^2 + bx + c = 0
         // const a = direction.dotProduct(direction);
         // a siempre es 1 si direction esta normalizado
 
-        const b = 2 * direction.dotProduct(center_to_origin);
+        const b = 2 * direccion_local.dotProduct(center_to_origin);
         const c = center_to_origin.dotProduct(center_to_origin) - self.radio * self.radio;
 
         // const discriminante = b * b - 4.0 * a * c;
@@ -125,7 +141,7 @@ pub const Modelo = struct {
 
             for (self.faces) |tria| {
                 //moller que devuelve o no un golpe
-                const moller = triangulo.Triangle.mollerTrumbore(origin, direction, tria.a.position, tria.b.position, tria.c.position);
+                const moller = triangulo.Triangle.mollerTrumbore(origen_local, direccion_local, tria.a.position, tria.b.position, tria.c.position);
                 //se recorren los golpes que no sean nulos y se guardan.
                 if (moller) |golpe| {
                     if (mejor == null or golpe.t < mejor.?.t) {
@@ -142,13 +158,18 @@ pub const Modelo = struct {
                 .y = golpe.b0 * cara.a.tex_coords.y + golpe.b1 * cara.b.tex_coords.y + golpe.b2 * cara.c.tex_coords.y,
             };
             // normal final al igual que antes, se combina con el mejor golpe. Importante normalizarla
-            var normal_I: rl.Vector3 = (rl.Vector3{
+            const normal_I: rl.Vector3 = (rl.Vector3{
                 .x = golpe.b0 * cara.a.normal.x + golpe.b1 * cara.b.normal.x + golpe.b2 * cara.c.normal.x,
                 .y = golpe.b0 * cara.a.normal.y + golpe.b1 * cara.b.normal.y + golpe.b2 * cara.c.normal.y,
                 .z = golpe.b0 * cara.a.normal.z + golpe.b1 * cara.b.normal.z + golpe.b2 * cara.c.normal.z,
             }).normalize();
-
-            if (normal_I.dotProduct(direction) > 0) normal_I = normal_I.scale(-1);
+            // para que la nave tenga la misma dirección de la cámara, la normal debe considerar la dirección.
+            const n = normal_I; // normal en el sistema local de la nave
+            var normal_dir = self.derecha.scale(n.x)
+                .add(self.arriba.scale(n.y))
+                .add(self.adelante.scale(n.z))
+                .normalize();
+            if (normal_dir.dotProduct(direction) > 0) normal_dir = normal_dir.scale(-1);
 
             return .{
                 .Distancia = golpe.t,

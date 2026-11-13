@@ -147,15 +147,20 @@ pub fn main() !void {
         .Reflectividad = 0,
         .Transparencia = 0,
     } };
-
+    var text_nave = try Textura.init(gpa, "src/Texturas/nave_lowpoly.png");
+    defer text_nave.deinit(gpa);
     // Asteroide: en el cinturón entre Marte (40) y Júpiter (56)
     const roca = Material{
-        .Color = .{ .Color = V3FromColor(htmlColor("#777")) },
+        .Color = .{ .Textura = &text_nave },
         .Propiedades = .{ .Albedo = 0.9, .Especular = 0.05, .Reflectividad = 0, .Transparencia = 0 },
         .Especular = 5,
         .Refractive_index = 0,
     };
-    const asteroide = try Modelo.Modelo.init(io, gpa, "src/modelos/asteroide.obj", roca, 1.2, .{ .x = 47, .y = 2, .z = -20 });
+    // se va a seguir llamando asteroide, no obstante, actualemente es una nave creada por chrisonciuconcepts
+    // el modelo no lo hice yo y por eso está en el gitignore porque obviamente no me pertenece. Para poder correr bien el proyecto
+    // se necesita de descargar https://sketchfab.com/3d-models/low-poly-space-ship-587941c9c11742c6b82dfb99e7b210b9
+    // y hacer la conversión de blender a .obj
+    var asteroide = try Modelo.Modelo.init(io, gpa, "src/modelos/Nave_lowpoly.obj", roca, 1.2, .zero());
     defer asteroide.deinit(gpa);
     objetos[cuerpos.len] = .{ .Modelo = asteroide };
     const anillo: Anillo = .{
@@ -231,6 +236,7 @@ pub fn main() !void {
                 &pitch,
                 &estado,
                 dt,
+                &objetos[cuerpos.len].Modelo,
             ),
             .mapa => try modo_mapa(&framebuffer_mapa, &modo, &cuerpos, &objetos, width, height, &estado),
         }
@@ -261,6 +267,7 @@ fn modo_camara(
     pitch: *f32,
     estado: *viaje_rapido_estados,
     dt: f32,
+    nave: *Modelo.Modelo,
 ) !void {
     // Se limita para no mirar exactamente hacia arriba o abajo (ahí Forward queda paralelo al eje vertical).
     const pitch_max: f32 = 85.0 * std.math.pi / 180.0;
@@ -289,7 +296,6 @@ fn modo_camara(
     pitch.* = @max(-pitch_max, @min(pitch_max, pitch.*));
     const speed = if (rl.isKeyDown(.left_shift)) moveSpeed * 2 else moveSpeed;
     const step = speed * dt;
-
     // --- Moverse: W/S adelante y atrás, A/D lateral, Espacio/Ctrl subir y bajar ---
     if (rl.isKeyDown(.w) and !estado.activo) {
         camera.Postition = camera.Postition.add(camera.Forward.scale(step));
@@ -349,6 +355,8 @@ fn modo_camara(
     };
     colisiones(camera, objetos); // evita que la cámara atraviese los planetas y el sol
     camera.lookAt(camera.Postition.add(dir));
+
+    actualizar_nave(camera, nave, 15);
 
     try render(io, framebuffer, escenario, camera.*);
 
@@ -549,7 +557,7 @@ fn render_1_to_x(target: *Framebuffer, escema: escena, camera: Camera, x_0: usiz
                 .z = direction_from_camera.x * camera.Right.z + direction_from_camera.y * camera.Up.z + direction_from_camera.z * camera.Forward.z,
             };
 
-            const col = cast_ray(camera.Postition, direction, escema, 5);
+            const col = cast_ray(camera.Postition, direction, escema, 3);
             target.set_pixel(@intCast(screen_x), @intCast(screen_y), V3ToColor(col)) catch |err| switch (err) {
                 error.BadCoordinates => @panic("Malas coordenadas"),
             };
@@ -759,7 +767,7 @@ fn colisiones(camara: *Camera, objetos: []const Forma) void {
         switch (obj) {
             .Sphere => |e| {
                 centro = e.center;
-                minima = e.radius + 5.0;
+                minima = e.radius + 14.0;
             },
             .Modelo => |m| {
                 centro = m.center;
@@ -858,4 +866,17 @@ fn viaje_rapido(
         estado.activo = false;
         estado.progreso = 0.0;
     }
+}
+// función para que la nave siga la cámara, básicamente solo se estarán haciendo los cálculos para que la nave
+// esté enfrente de la cámara. Como todo en esta vida, la nave tiene que ser un puntero para poder actualizarse.
+// el desface será que tan adelante de la cámara se encuentra la nave.
+fn actualizar_nave(camara: *Camera, nave: *Modelo.Modelo, desfase: f32) void {
+    const adelante = camara.Postition.add(camara.Forward.scale(desfase));
+    // olvidé que el desface no debería de ser lo mismo. Si es el mismo la nave se sale del fov y no se dibuja.
+    const atras = camara.Up.scale(desfase / 5);
+    const nuevasCords = adelante.subtract(atras);
+    nave.posicion = nuevasCords;
+    nave.derecha = camara.Right;
+    nave.adelante = camara.Forward;
+    nave.arriba = camara.Up;
 }

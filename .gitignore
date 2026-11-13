@@ -2,3 +2,5 @@
 .vscode/
 zig-out/
 zig-pkg/
+src/modelos/Nave_lowpoly.obj
+src/Texturas/Nave_lowpoly.png
